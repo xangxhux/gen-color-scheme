@@ -23,9 +23,8 @@ class TextInput(BaseModel):
     mood_text: str
 
 class MoodResponse(BaseModel):
-    moods: dict
-    dominant_mood: str
-    mood_palette: dict[str, dict]
+    theme_colors: list[dict[str,str]]
+    theme_css: str 
 
 @app.post("/api/analyse-mood", response_model=MoodResponse)
 def analyse_mood(input: TextInput) -> MoodResponse:

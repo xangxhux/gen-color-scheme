@@ -1,5 +1,7 @@
+import json
 import os
-from typing import TypedDict
+from datetime import datetime
+from typing import TypedDict, Any
 import numpy as np
 from gradio_client import Client
 from sentence_transformers import SentenceTransformer, util
@@ -9,7 +11,7 @@ from huggingface_hub import login
 class Config:
     """Configuration settings for the application."""
     EMBEDDING_MODEL_ID = "google/embeddinggemma-300M"
-    # PROMPT_NAME = "STS"
+    PROMPT_NAME = "STS"
     TOP_K = 5
     HF_TOKEN = os.getenv('HF_TOKEN')
 
@@ -20,7 +22,7 @@ class MoodEmbedding(TypedDict):
 # --- CORE LOGIC ---
 # Encapsulated in a class to manage state (model, embeddings) cleanly.
 class MoodAnalyser:
-    def __init__(self, config: Config, color_data: list[dict[str, any]]):
+    def __init__(self, config: Config, color_data: list[dict[str, Any]]):
         self.config = config
         self.color_data = color_data
         self._login_to_hf()
@@ -69,6 +71,7 @@ class MoodAnalyser:
             prompt_name=self.config.PROMPT_NAME
         )
         print("Embeddings computed successfully.")
+        self._debug('COLOR_EMBEDDINGS',embeddings)
         return embeddings
 
     def _get_text_color_for_bg(self, hex_color: str) -> str:
@@ -84,24 +87,75 @@ class MoodAnalyser:
         except (ValueError, IndexError):
             return '#000000' # Default to black on invalid hex
 
-    def _generate_palette_and_theme(self, mood_data: dict) -> tuple[str, str]:
-        """Generates a color palette in CSS values based on the given mood"""
-       return ("HI", "HI")
+    def _generate_palette_and_theme(self, top_hits: list[dict[str, Any]]) -> tuple[list[dict[str,str]], str]:
+        """Generates a color palette in CSS values based on the given mood. Returns a tuple containing a list of entries containing color info and a string representing the final css theme based on the list color."""
+        theme_colors = []
 
+        if top_hits:
+            theme_colors = [
+                    {
+                        "name": self.color_data[hit['corpus_id']]['name'],
+                        "color": self.color_data[hit['corpus_id']]['hex'],
+                        "text-color": self._get_text_color_for_bg(self.color_data[hit['corpus_id']]['hex'])
+                        }
+                    for hit in top_hits
+                    ]
 
-    def analyse_mood(self, mood_text: str) -> dict:
-        """Returns mood scores for the given text"""
-        mood_embedding = self.embedding_model.encode(mood_text, prompt_name=self.config.PROMPT_NAME)
-        print(mood_embedding)
-        top_hits = util.semantic_search(
-                mood_embedding, self.color_embeddings, top_k=self.config.TOP_K
-                )[0]
-        print(top_hits)
-
-        # Sample response 
-        return {
-                'moods': {'asdf':123},
-                'dominant_mood': {"happy": 1.0},
-                'mood_palette': '' 
+        self._debug('THEME_COLORS', theme_colors)
+        css_map = {
+                "button-primary-background-fill": (0, 'color'),
+                "button-primary-text-color-color": (0, 'text-color'),
+                "button-secondary-background-fill": (1, 'color'),
+                "button-secondary-text-color": (1, 'text-color'),
+                "block-background-fill": (2, 'color'),
+                "block-info-text-color": (2, 'text-color'),
+                "block-title-background-fill": (3, 'color'),
+                "button-primary-background-fill-hover": (3, 'color'),
+                "block-title-text-color": (3, 'text-color'),
+                "button-primary-text-color-hover": (3, 'text-color'),
+                "button-secondary-background-fill-hover": (4, 'color'),
+                "button-secondary-text-color-hover": (4, 'text-color'),
                 }
 
+        css_rules = []
+        num_available_colors = len(theme_colors)
+
+        for var_suffix, (index, key) in css_map.items():
+            if index < num_available_colors:
+                color_value = theme_colors[index][key]
+                css_rules.append(f"--{var_suffix}: {color_value};")       
+
+        self._debug('CSS_RULES', css_rules)
+        css_rules_str = "\n".join(css_rules) 
+
+        # Create CSS variables to inject
+        css = f"""
+        <style>
+            :root {{
+                {css_rules_str}
+                }}
+            :root .dark {{
+                {css_rules_str}
+                }}
+            .gallery-item .gallery {{
+                background: {theme_colors[4]['color']};
+                color: {theme_colors[4]['text-color']};
+                }}
+        </style>
+        """
+
+        return (theme_colors, css)
+
+
+    def analyse_mood(self, mood_text: str) -> dict[str, str]|None:
+        """Returns mood scores for the given text"""
+        mood_embeddings = self.embedding_model.encode(mood_text, prompt_name=self.config.PROMPT_NAME)
+        self._debug('MOOD_EMBEDDINGS', mood_embeddings)
+        top_hits = util.semantic_search(mood_embeddings, self.color_embeddings, top_k=self.config.TOP_K)[0]
+        self._debug('TOP_HITS', top_hits)
+        theme_data = self._generate_palette_and_theme(top_hits)
+        self._debug('THEME_CSS', theme_data[1])
+        return {
+                'theme_colors': theme_data[0],
+                'theme_css': theme_data[1],
+                }
