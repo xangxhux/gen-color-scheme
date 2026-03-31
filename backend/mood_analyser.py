@@ -27,6 +27,17 @@ class MoodAnalyser:
         self.embedding_model = self._load_model()
         self.color_embeddings = self._precompute_color_embeddings()
 
+    def _debug(self, message: str, content):
+        with open("debug.log", "a") as f:
+            if isinstance(content, (dict, list, tuple)):
+                content_str = json.dumps(content, indent=2, default=str, ensure_ascii=False)
+            else:
+                content_str = str(content)
+
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{timestamp}\t{message}\t:\t{content_str}\n")
+
+
     def _login_to_hf(self):
         """Logs into Hugging Face Hub if a token is provided."""
         print(f'found secret token '+self.config.HF_TOKEN)
